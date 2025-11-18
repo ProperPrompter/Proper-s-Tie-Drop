@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Proper's: Tie Drop</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #121212;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .main-layout {
+            display: flex; width: 100%; max-width: 1300px; height: 98vh;
+            justify-content: center; align-items: center; gap: 20px;
+        }
+
+        #gameContainer {
+            position: relative; aspect-ratio: 768 / 1344; height: 100%; max-height: 98vh;
+            background-color: #222; box-shadow: 0 0 50px rgba(0,0,0,0.8); border: 2px solid #333;
+        }
+
+        .sidebar {
+            width: 400px; height: 100%; max-height: 98vh; background: #1a1a1a;
+            border: 4px solid #444; display: flex; flex-direction: column;
+            box-sizing: border-box; color: white; padding: 0;
+        }
+        @media (max-width: 900px) { .sidebar { display: none; } }
+
+        /* CUSTOM SCROLLBAR */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #444; border: 1px solid #000; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+
+        /* LEADERBOARD SECTION */
+        .lb-section {
+            flex: 1; display: flex; flex-direction: column; overflow: hidden;
+            border-bottom: 4px solid #444; padding: 15px;
+        }
+        .lb-title { text-align: center; font-size: 22px; font-weight: 900; border-bottom: 4px solid #f1c40f; padding-bottom: 15px; margin-bottom: 15px; letter-spacing: 1px; flex-shrink: 0; }
+        .lb-list { flex-grow: 1; overflow-y: auto; min-height: 0; padding-right: 5px; }
+        .lb-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 5px; border-bottom: 1px solid #333; font-size: 16px; }
+        .lb-rank { color: #888; width: 30px; flex-shrink: 0; }
+        .lb-rank.rank-1 { color: #FFD700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.3); }
+        .lb-rank.rank-2 { color: #C0C0C0; text-shadow: 0 0 10px rgba(192, 192, 192, 0.3); }
+        .lb-rank.rank-3 { color: #CD7F32; text-shadow: 0 0 10px rgba(205, 127, 50, 0.3); }
+        
+        .lb-name { 
+            color: #fff; font-weight: bold; flex-grow: 1; text-align: left; padding-left: 10px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
+        }
+        .lb-score { color: #f1c40f; font-weight: bold; text-align: right; flex-shrink: 0; }
+        .lb-empty { text-align: center; color: #555; margin-top: 20px; font-style: italic; }
+
+        /* CHAT SECTION */
+        .chat-section {
+            height: 40%; display: flex; flex-direction: column; background: #151515;
+            padding: 10px; overflow: hidden;
+        }
+        .chat-title { font-size: 16px; font-weight: bold; color: #aaa; margin-bottom: 8px; text-align: center; border-bottom: 1px solid #333; padding-bottom: 5px; flex-shrink: 0; }
+        .chat-list {
+            flex-grow: 1; overflow-y: auto; min-height: 0; margin-bottom: 10px;
+            font-size: 13px; font-family: 'Courier New', monospace;
+            background: #000; border: 1px solid #333; padding: 5px;
+        }
+        .chat-msg { margin-bottom: 4px; word-wrap: break-word; line-height: 1.4; }
+        .chat-msg.system {
+            background: linear-gradient(90deg, rgba(241, 196, 15, 0.15), transparent);
+            border-left: 3px solid #f1c40f;
+            padding: 6px 8px;
+            margin: 8px 0;
+        }
+        .chat-msg.system .chat-text { color: #f1c40f; font-weight: bold; font-style: italic; text-shadow: 0 0 5px rgba(0,0,0,0.5); }
+        
+        .chat-name { color: #3498db; font-weight: bold; margin-right: 5px; }
+        .chat-text { color: #ddd; }
+        .chat-input-area { display: flex; gap: 5px; }
+        .chat-input {
+            flex-grow: 1; background: #222; border: 1px solid #555; color: white;
+            padding: 8px; font-family: inherit; outline: none; font-size: 14px;
+        }
+        .chat-btn {
+            background: #3498db; border: 1px solid #fff; color: white;
+            cursor: pointer; font-weight: bold; padding: 0 15px;
+            text-transform: uppercase; font-size: 14px;
+        }
+        .chat-btn:hover { background: #2980b9; }
+
+        canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+        
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 30; pointer-events: auto;
+        }
+        
+        #uiLayer { position: absolute; top: 0; left: 0; width: 100%; padding: 30px; box-sizing: border-box; display: flex; justify-content: space-between; pointer-events: none; z-index: 20; }
+
+        #muteBtn {
+            position: absolute; top: 90px; right: 30px; width: 40px; height: 40px;
+            background: rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.5); border-radius: 50%;
+            color: white; font-size: 20px; display: flex; justify-content: center; align-items: center;
+            cursor: pointer; z-index: 100; pointer-events: auto; opacity: 0.4; transition: opacity 0.2s;
+        }
+        #muteBtn:hover { opacity: 1.0; border-color: #fff; }
+        
+        .score-text { color: white; font-size: 32px; font-weight: 900; text-shadow: 4px 4px 0 #000; }
+
+        .retro-input {
+            background: #000; border: 4px solid #fff; color: #f1c40f;
+            font-family: inherit; font-size: 24px; padding: 10px;
+            text-align: center; text-transform: uppercase; margin-bottom: 20px; width: 250px; outline: none;
+        }
+
+        .pixel-btn {
+            background: #3498db; border: 4px solid #fff; color: white;
+            font-family: inherit; font-size: 20px; padding: 12px 20px;
+            cursor: pointer; text-transform: uppercase; font-weight: bold;
+            margin: 8px; box-shadow: 0 6px 0 #1f5e87; text-shadow: 1px 1px 0 #000; min-width: 220px;
+        }
+        .pixel-btn:active { transform: translateY(6px); box-shadow: 0 0 0 #1f5e87; }
+        .pixel-btn:disabled { background: #555; box-shadow: none; border-color: #888; color: #aaa; cursor: not-allowed; }
+        .pixel-btn.red { background: #e74c3c; box-shadow: 0 6px 0 #922b21; }
+        .pixel-btn.red:active { box-shadow: 0 0 0 #922b21; }
+        .pixel-btn.black { background: #111; border-color: #333; box-shadow: 0 6px 0 #000; }
+        .pixel-btn.black:active { box-shadow: 0 0 0 #000; }
+        .pixel-btn.green { background: #27ae60; box-shadow: 0 6px 0 #145a32; }
+        .pixel-btn.green:active { box-shadow: 0 0 0 #145a32; }
+
+        #startScreen { background: rgba(0,0,0,0.7); }
+        #gameOverScreen { background: rgba(0,0,0,0.9); display: none; }
+        
+        .kill-report {
+            background: rgba(255, 0, 0, 0.2); border: 2px solid #e74c3c;
+            padding: 10px 20px; border-radius: 10px; margin-bottom: 15px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .kill-report img { width: 60px; margin-top: 5px; background: #fff; border-radius: 5px; padding: 5px; }
+
+        /* INFO SCREEN */
+        #infoScreen {
+            background: rgba(18, 18, 18, 0.98); display: none; flex-direction: column;
+            justify-content: flex-start; align-items: center; padding-top: 20px; overflow-y: auto; color: #fff;
+        }
+        .guide-container { width: 90%; padding-bottom: 40px; text-align: center; }
+        .guide-section { background: #fff; border: 4px solid #111; border-radius: 10px; margin-bottom: 20px; padding: 15px; color: #111; }
+        .section-title { font-size: 22px; font-weight: 900; margin-bottom: 15px; text-transform: uppercase; }
+        .grid-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+        .guide-item { display: flex; flex-direction: column; align-items: center; width: 70px; }
+        .guide-item img { width: 60px; height: 60px; object-fit: contain; image-rendering: pixelated; margin-bottom: 4px; filter: none; }
+        .item-pts { font-size: 16px; font-weight: bold; color: #333; min-height: 19px; }
+        
+        #settingsScreen { background: rgba(20, 20, 20, 0.95); display: none; color: white; }
+        .slider-container { margin: 20px 0; text-align: center; }
+        input[type=range] { width: 300px; height: 20px; accent-color: #f1c40f; cursor: pointer; }
+        label { display: block; font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+
+        /* SHARE PREVIEW SCREEN */
+        #sharePreviewScreen { background: rgba(10, 10, 10, 0.98); display: none; z-index: 100; flex-direction: column; justify-content: center; align-items: center; }
+        #shareCanvasContainer {
+            margin-bottom: 20px;
+            border: 4px solid #fff;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            display: flex;
+        }
+        #shareCanvasContainer canvas {
+            max-width: 80vw;
+            max-height: 60vh;
+            width: auto;
+            height: auto;
+        }
+
+        #loading { color: white; font-size: 24px; font-weight: bold; text-align: center; }
+    </style>
+</head>
+<body>
+
+<div class="main-layout">
+    <!-- GAME AREA -->
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="muteBtn" onclick="toggleMute()">🔊</div>
+        <div id="uiLayer">
+            <div id="scoreEl" class="score-text">SCORE: 0</div>
+            <div id="highScoreEl" class="score-text">HIGH: 0</div>
+        </div>
+    
+        <!-- START -->
+        <div id="startScreen" class="overlay">
+            <div id="loading">LOADING...<br><span id="loadCount">0%</span></div>
+            <div id="startContent" style="display:none; text-align: center;">
+                <h1 class="score-text" style="font-size: 52px; margin-bottom: 20px; color: #f1c40f; text-shadow: 4px 4px #000;">PROPER'S:<br>TIE DROP</h1>
+                
+                <!-- AUTH UI -->
+                <div id="authContainer" style="margin-bottom: 20px;">
+                    <div id="userInfo" style="display:none; flex-direction:column; align-items:center; margin-bottom:15px;">
+                        <img id="userAvatar" src="" style="width:60px; height:60px; border-radius:50%; border:3px solid #fff; margin-bottom:10px;">
+                        <div id="userName" class="score-text" style="font-size:24px;"></div>
+                        <button class="pixel-btn small red" onclick="window.location.href='/auth/logout'" style="margin-top:5px; font-size:12px; min-width:100px;">LOGOUT</button>
+                    </div>
+                    <button id="connectBtn" class="pixel-btn black" onclick="window.location.href='/auth/twitter'">CONNECT 𝕏 TO PLAY</button>
+                </div>
+
+                <button id="playBtn" class="pixel-btn" onclick="startGame()" style="display:none;">PLAY</button>
+                <br>
+                <button class="pixel-btn small" onclick="toggleInfo(true)">GUIDE</button>
+                <button class="pixel-btn small" onclick="toggleSettings(true)">SETTINGS</button>
+            </div>
+        </div>
+    
+        <!-- GAME OVER -->
+        <div id="gameOverScreen" class="overlay">
+            <h1 id="goTitle" class="score-text" style="font-size: 50px; color: #ff4d4d; margin: 0 0 10px 0; opacity: 0; transition: opacity 0.5s;">GAME OVER</h1>
+            <div id="goButtons" style="opacity: 0; transition: opacity 0.5s; display: flex; flex-direction: column; align-items: center;">
+                <div class="kill-report">
+                    <span style="color:#e74c3c; font-weight:bold; font-size:14px;">ELIMINATED BY:</span>
+                    <img id="killImg" src="" alt="Cause of Death">
+                </div>
+                <p id="finalScore" class="score-text" style="font-size: 36px; margin-bottom: 15px;">SCORE: 0</p>
+                <button class="pixel-btn red" onclick="startGame()">TRY AGAIN</button>
+                <button class="pixel-btn" onclick="openSharePreview()">SHARE SCORE 📸</button>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button class="pixel-btn small" style="min-width:100px; font-size:14px;" onclick="toggleInfo(true)">GUIDE</button>
+                    <button class="pixel-btn small" style="min-width:100px; font-size:14px;" onclick="toggleSettings(true)">SETTINGS</button>
+                </div>
+            </div>
+        </div>
+    
+        <!-- SHARE PREVIEW -->
+        <div id="sharePreviewScreen" class="overlay">
+            <h2 class="score-text" style="margin-bottom: 20px;">SHARE PREVIEW</h2>
+            <div id="shareCanvasContainer"></div>
+            <p style="color:#888; font-size:12px; margin-bottom:10px;">(If button fails, Right Click image to Save)</p>
+            <div style="display:flex; gap:20px;">
+                <button class="pixel-btn green" onclick="downloadShareImage()">SAVE IMAGE</button>
+                <button class="pixel-btn red" onclick="closeSharePreview()">CLOSE</button>
+            </div>
+        </div>
+
+        <!-- SETTINGS -->
+        <div id="settingsScreen" class="overlay">
+            <h2 class="score-text">SETTINGS</h2>
+            <div class="slider-container"><label>MUSIC VOLUME</label><input type="range" min="0" max="1" step="0.1" value="0.5" oninput="setVolume('music', this.value)"></div>
+            <div class="slider-container"><label>SFX VOLUME</label><input type="range" min="0" max="1" step="0.1" value="0.8" oninput="setVolume('sfx', this.value)"></div>
+            <button class="pixel-btn" onclick="toggleSettings(false)">CLOSE</button>
+        </div>
+    
+        <!-- GUIDE -->
+        <div id="infoScreen" class="overlay">
+            <div class="guide-container">
+                <h2 class="score-text" style="margin-bottom: 15px; text-decoration: underline; color: #111; text-shadow:none;">COLLECTION GUIDE</h2>
+                <div class="guide-section" style="border-color:#e74c3c;">
+                    <div class="section-title" style="color: #e74c3c;">⚠️ AVOID</div>
+                    <div class="grid-container" id="grid-bad"></div>
+                </div>
+                <div class="guide-section" style="border-color:#f1c40f;">
+                    <div class="section-title" style="color: #f39c12;">🌟 LEGENDARY (+50)</div>
+                    <div class="grid-container" id="grid-50"></div>
+                </div>
+                <div class="guide-section" style="border-color:#3498db;">
+                    <div class="section-title" style="color: #2980b9;">💎 RARE (+20)</div>
+                    <div class="grid-container" id="grid-20"></div>
+                </div>
+                <div class="guide-section" style="border-color:#333;">
+                    <div class="section-title" style="color: #333;">👔 CLASSIC (+10)</div>
+                    <div class="grid-container" id="grid-10"></div>
+                </div>
+                <button class="pixel-btn" style="margin-top: 10px;" onclick="toggleInfo(false)">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIDEBAR LEADERBOARD & CHAT -->
+    <div class="sidebar">
+        <div class="lb-section">
+            <div class="lb-title">🏆 TOP COLLECTORS</div>
+            <div class="lb-list" id="lbList"></div>
+        </div>
+        <div class="chat-section">
+            <div class="chat-title">LIVE CHAT</div>
+            <div class="chat-list" id="chatList"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" class="chat-input" placeholder="Connect X to chat..." disabled maxlength="140" onkeydown="if(event.key==='Enter') sendChat()">
+                <button id="chatSendBtn" class="chat-btn" onclick="sendChat()" disabled>SEND</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* AUDIO */
+const AudioSys = {
+    bgm: new Audio('background-music.wav'),
+    sounds: { legendary: new Audio('legendary.wav'), normal: new Audio('normal.wav'), bomb: new Audio('bomb.wav'), fire: new Audio('fire.wav'), skull: new Audio('skull.wav'), gameover: new Audio('gameover.wav') },
+    vols: { music: 0.5, sfx: 0.8 }, muted: false,
+    init: function() { this.bgm.loop = true; this.updateVols(); },
+    playMusic: function() { if(this.muted) return; this.bgm.play().catch(e=>{}); },
+    stopMusic: function() { this.bgm.pause(); this.bgm.currentTime = 0; },
+    playSFX: function(key) { if(this.muted) return; const src = this.sounds[key]; if(src) { const clone = src.cloneNode(); clone.volume = this.vols.sfx; clone.play().catch(e=>{}); } },
+    updateVols: function() { this.bgm.volume = this.vols.music; Object.values(this.sounds).forEach(s => s.volume = this.vols.sfx); },
+    toggleMute: function() { this.muted = !this.muted; if(this.muted) this.bgm.pause(); else this.bgm.play(); return this.muted; }
+};
+AudioSys.init();
+function setVolume(type, val) { if(type === 'music') AudioSys.vols.music = parseFloat(val); if(type === 'sfx') AudioSys.vols.sfx = parseFloat(val); AudioSys.updateVols(); }
+function toggleMute() { const isMuted = AudioSys.toggleMute(); document.getElementById('muteBtn').innerText = isMuted ? "🔇" : "🔊"; }
+
+/* LEADERBOARD (API) */
+const Leaderboard = {
+    data: [],
+    init: function() { 
+        this.fetch();
+    },
+    fetch: function() {
+        fetch('/api/leaderboard')
+            .then(res => res.json())
+            .then(data => {
+                this.data = data;
+                this.render();
+            })
+            .catch(err => console.error("LB Error:", err));
+    },
+    render: function() { 
+        const container = document.getElementById('lbList'); 
+        container.innerHTML = ""; 
+        if(this.data.length === 0) { 
+            container.innerHTML = "<div class='lb-empty'>NO SCORES YET</div>"; 
+            return; 
+        } 
+        this.data.forEach((entry, i) => { 
+            const div = document.createElement('div'); 
+            div.className = 'lb-row'; 
+            // Add profile link and image
+            const imgHtml = entry.photoUrl ? `<img src="${entry.photoUrl}" style="width:24px; height:24px; border-radius:50%; vertical-align:middle; margin-right:5px;">` : '';
+            const nameHtml = `<a href="${entry.profileUrl}" target="_blank" style="color:#fff; text-decoration:none;">${imgHtml}@${entry.username}</a>`;
+            
+            let rankClass = '';
+            let rankIcon = '';
+            if (i === 0) { rankClass = 'rank-1'; rankIcon = '👑 '; }
+            else if (i === 1) { rankClass = 'rank-2'; rankIcon = '🥈 '; }
+            else if (i === 2) { rankClass = 'rank-3'; rankIcon = '🥉 '; }
+
+            div.innerHTML = `<span class="lb-rank ${rankClass}">${rankIcon}#${i+1}</span><span class="lb-name">${nameHtml}</span><span class="lb-score">${entry.highScore}</span>`; 
+            container.appendChild(div); 
+        }); 
+    }
+};
+
+/* CHAT SYSTEM */
+const Chat = {
+    socket: null,
+    init: function() {
+        if (typeof io !== 'undefined') {
+            this.socket = io();
+            this.socket.on('chat message', (msg) => {
+                this.addMessage(msg);
+            });
+        } else {
+            console.warn("Socket.io not loaded. Chat disabled.");
+            document.querySelector('.chat-section').style.display = 'none';
+        }
+    },
+    send: function(text) {
+        if(!text || !this.socket) return;
+        // Ensure state is initialized before accessing it
+        if (typeof state === 'undefined' || state.username === "GUEST") {
+            alert("Please connect with X to chat!");
+            return;
+        }
+        const username = "@" + state.username;
+        this.socket.emit('chat message', { user: username, text: text });
+    },
+    addMessage: function(msg) {
+        const list = document.getElementById('chatList');
+        const div = document.createElement('div');
+        
+        if (msg.user === 'SYSTEM') {
+            div.className = 'chat-msg system';
+            div.innerHTML = `<span class="chat-text">${msg.text}</span>`;
+        } else {
+            div.className = 'chat-msg';
+            const safeText = msg.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const safeUser = msg.user.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            div.innerHTML = `<span class="chat-name">${safeUser}:</span><span class="chat-text">${safeText}</span>`;
+        }
+        
+        list.appendChild(div);
+        list.scrollTop = list.scrollHeight;
+    }
+};
+
+function sendChat() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if(text) {
+        Chat.send(text);
+        input.value = "";
+    }
+}
+
+// Initialize Chat later, after other things might have loaded
+// Chat.init(); // Moved to updateLoader or window.onload
+
+/* CONFIG */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GAME_W = 768; const GAME_H = 1344;
+const CHAR_W = 174; const CHAR_H = 395;
+const BASKET_W = 135; const BASKET_H = 90;
+const CHAR_Y = GAME_H - 58 - CHAR_H; 
+const BASKET_Y = GAME_H - 165 - BASKET_H; 
+const ITEM_TARGET_W = 80;
+canvas.width = GAME_W; canvas.height = GAME_H;
+
+const assets = { core: {}, items: [] };
+const SCORE_TABLE = { 'gg-bomb.png': 0, 'gg-skull.png': 0, 'gg-fire.png': 0, 'tie-galaxy.png': 50, 'tie-goldcrown.png': 50, 'tie-rainbow.png': 50, 'tie-diamond.png': 20, 'tie-moon.png': 20, 'tie-tiger.png': 20, 'tie-blue.png': 10, 'tie-bluestripes.png': 10, 'tie-checker.png': 10, 'tie-green.png': 10, 'tie-pink.png': 10, 'tie-polkadot.png': 10, 'tie-stripes.png': 10 };
+const coreFiles = [ { key: 'bg', src: 'background.png' }, { key: 'char', src: 'character.png' }, { key: 'basket', src: 'basket.png' }, { key: 'sharebg', src: 'share-bg.png' } ];
+const itemFiles = Object.keys(SCORE_TABLE);
+let itemsLoaded = 0; const totalItems = coreFiles.length + itemFiles.length;
+
+function updateLoader() {
+    itemsLoaded++;
+    const percent = Math.floor((itemsLoaded / totalItems) * 100);
+    document.getElementById('loadCount').innerText = percent + "%";
+    if(itemsLoaded === totalItems) {
+        initInfoScreen();
+        Leaderboard.init(); 
+        Chat.init(); // Initialize Chat here
+        checkAuth(); // Check if user is logged in
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('startContent').style.display = 'block';
+        requestAnimationFrame(loop);
+    }
+}
+coreFiles.forEach(f => { 
+    const img = new Image(); 
+    img.src = f.src; 
+    img.onload = updateLoader; img.onerror = updateLoader; assets.core[f.key] = img; 
+});
+itemFiles.forEach(src => { 
+    const img = new Image(); 
+    img.src = src; 
+    img.onload = () => { let isBad = src.includes('gg-'); assets.items.push({ img: img, name: src, isBad: isBad, score: SCORE_TABLE[src] }); updateLoader(); }; 
+    img.onerror = updateLoader; 
+});
+
+function initInfoScreen() {
+    const grids = { bad: document.getElementById('grid-bad'), 50: document.getElementById('grid-50'), 20: document.getElementById('grid-20'), 10: document.getElementById('grid-10') };
+    assets.items.sort((a,b) => a.name.localeCompare(b.name));
+    assets.items.forEach(item => {
+        const div = document.createElement('div'); div.className = 'guide-item';
+        let label = item.isBad ? "" : item.score;
+        div.innerHTML = `<img src="${item.name}"><span class="item-pts">${label}</span>`;
+        if (item.isBad) grids.bad.appendChild(div); else if (item.score === 50) grids[50].appendChild(div); else if (item.score === 20) grids[20].appendChild(div); else grids[10].appendChild(div);
+    });
+}
+
+/* GAME LOGIC */
+const state = { running: false, frozen: false, gameOver: false, score: 0, highScore: 0, frames: 0, playerX: GAME_W / 2, playerVX: 0, items: [], username: "GUEST", deathSource: null };
+const MAX_SPEED = 9; const ACCEL = 0.8; const FRICTION = 0.90;    
+const keys = { left: false, right: false };
+window.addEventListener('keydown', e => { if(e.key==='ArrowLeft') keys.left=true; if(e.key==='ArrowRight') keys.right=true; });
+window.addEventListener('keyup', e => { if(e.key==='ArrowLeft') keys.left=false; if(e.key==='ArrowRight') keys.right=false; });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); const rect = canvas.getBoundingClientRect(); const tx = (e.touches[0].clientX - rect.left) * (GAME_W / rect.width); if(tx < GAME_W/2) { keys.left=true; keys.right=false; } else { keys.right=true; keys.left=false; } });
+canvas.addEventListener('touchend', () => { keys.left=false; keys.right=false; });
+
+function checkAuth() {
+    fetch('/api/user')
+        .then(res => res.json())
+        .then(data => {
+            if(data.authenticated) {
+                state.username = data.user.username;
+                document.getElementById('connectBtn').style.display = 'none';
+                document.getElementById('userInfo').style.display = 'flex';
+                document.getElementById('userAvatar').src = data.user.photoUrl;
+                document.getElementById('userName').innerText = "@" + data.user.username;
+                document.getElementById('playBtn').style.display = 'inline-block';
+                
+                // Enable Chat
+                document.getElementById('chatInput').disabled = false;
+                document.getElementById('chatInput').placeholder = "Say something...";
+                document.getElementById('chatSendBtn').disabled = false;
+            } else {
+                document.getElementById('connectBtn').style.display = 'inline-block';
+                document.getElementById('userInfo').style.display = 'none';
+                document.getElementById('playBtn').style.display = 'none';
+                
+                // Disable Chat
+                document.getElementById('chatInput').disabled = true;
+                document.getElementById('chatInput').placeholder = "Connect X to chat...";
+                document.getElementById('chatSendBtn').disabled = true;
+            }
+        })
+        .catch(e => console.error("Auth check failed", e));
+}
+
+function startGame() {
+    // state.username is set in checkAuth
+    state.score = 0; state.items = []; state.frames = 0; state.playerX = GAME_W / 2; state.playerVX = 0;
+    state.gameOver = false; state.frozen = false; state.running = true;
+    AudioSys.playMusic();
+    document.getElementById('scoreEl').innerText = "SCORE: 0";
+    ['startScreen','gameOverScreen','infoScreen','settingsScreen', 'sharePreviewScreen'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('goTitle').style.opacity = 0; document.getElementById('goButtons').style.opacity = 0;
+}
+function toggleInfo(show) { document.getElementById('infoScreen').style.display = show ? 'flex' : 'none'; }
+function toggleSettings(show) { document.getElementById('settingsScreen').style.display = show ? 'flex' : 'none'; }
+
+function spawnItem() {
+    if(assets.items.length === 0) return;
+    let badChance = 0.10 + (state.score / 5000); if (badChance > 0.30) badChance = 0.30;
+    let baseSpeed = 4 + (state.score / 1000); 
+    let template;
+    if (Math.random() < badChance) {
+        const badItems = assets.items.filter(i => i.isBad); template = badItems[Math.floor(Math.random() * badItems.length)]; baseSpeed *= 1.4; 
+    } else {
+        const goodItems = assets.items.filter(i => !i.isBad);
+        const roll = Math.random(); let pool = [];
+        if (roll < 0.15) pool = goodItems.filter(i => i.score === 50); else if (roll < 0.45) pool = goodItems.filter(i => i.score === 20); else pool = goodItems.filter(i => i.score === 10);
+        if(pool.length === 0) pool = goodItems;
+        template = pool[Math.floor(Math.random() * pool.length)];
+    }
+    state.items.push({ x: Math.random()*(GAME_W-100)+50, y: -100, asset: template, speed: baseSpeed+(Math.random()*2.0), rot: (Math.random()-0.5)*0.05, angle: 0 });
+}
+
+function update() {
+    if(!state.running || state.frozen) return;
+    state.frames++;
+    if(keys.left) state.playerVX -= ACCEL; if(keys.right) state.playerVX += ACCEL;
+    if(!keys.left && !keys.right) state.playerVX *= FRICTION;
+    if(state.playerVX > MAX_SPEED) state.playerVX = MAX_SPEED; if(state.playerVX < -MAX_SPEED) state.playerVX = -MAX_SPEED;
+    state.playerX += state.playerVX;
+    if(Math.abs(state.playerVX) < 0.1) state.playerVX = 0;
+    if(state.playerX < 60) { state.playerX = 60; state.playerVX = 0; } if(state.playerX > GAME_W - 60) { state.playerX = GAME_W - 60; state.playerVX = 0; }
+    let spawnRate = 50; if(state.score > 400) spawnRate = 40; if(state.score > 1000) spawnRate = 30; if(state.score > 2000) spawnRate = 25;
+    if(state.frames % spawnRate === 0) spawnItem();
+    const bodyBox = { x: state.playerX - 50, y: CHAR_Y + 70, w: 100, h: CHAR_H - 70 };
+    const basketBox = { x: state.playerX - (BASKET_W/2), y: BASKET_Y + 8, w: BASKET_W, h: 30 };
+    for(let i=state.items.length-1; i>=0; i--) {
+        let item = state.items[i]; item.y += item.speed; item.angle += item.rot;
+        const ix = item.x; const iy = item.y + 20; 
+        if(item.asset.isBad) {
+            const hitBody = (ix > bodyBox.x && ix < bodyBox.x+bodyBox.w && iy > bodyBox.y && iy < bodyBox.y+bodyBox.h);
+            const hitBasket = (ix > basketBox.x && ix < basketBox.x+basketBox.w && iy > basketBox.y && iy < basketBox.y+basketBox.h + 60); 
+            if(hitBody || hitBasket) { triggerDeathSequence(item.asset); return; }
+        } else {
+            if(iy > basketBox.y && iy < basketBox.y + basketBox.h) {
+                if(ix > basketBox.x && ix < basketBox.x + basketBox.w) {
+                    state.score += item.asset.score;
+                    document.getElementById('scoreEl').innerText = "SCORE: " + state.score;
+                    if(item.asset.score >= 50) AudioSys.playSFX('legendary'); else AudioSys.playSFX('normal');
+                    state.items.splice(i,1); continue;
+                }
+            }
+        }
+        if(item.y > GAME_H) state.items.splice(i,1);
+    }
+}
+
+function triggerDeathSequence(sourceItem) {
+    state.frozen = true; state.deathSource = sourceItem; AudioSys.stopMusic();
+    if(sourceItem.name.includes('bomb')) AudioSys.playSFX('bomb'); else if(sourceItem.name.includes('fire')) AudioSys.playSFX('fire'); else AudioSys.playSFX('skull');
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0,0,GAME_W,GAME_H);
+    
+    // Submit Score
+    fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: state.score })
+    }).then(() => Leaderboard.fetch()).catch(e => console.error(e));
+
+    setTimeout(() => {
+        state.running = false; state.gameOver = true;
+        AudioSys.playSFX('gameover');
+        if(state.score > state.highScore) state.highScore = state.score;
+        document.getElementById('highScoreEl').innerText = "HIGH: " + state.highScore;
+        document.getElementById('finalScore').innerText = "SCORE: " + state.score;
+        document.getElementById('killImg').src = sourceItem.name;
+        const goScreen = document.getElementById('gameOverScreen'); goScreen.style.display = 'flex';
+        setTimeout(() => document.getElementById('goTitle').style.opacity = 1, 100);
+        setTimeout(() => document.getElementById('goButtons').style.opacity = 1, 600);
+    }, 1000);
+}
+
+function draw() {
+    if(state.frozen) return;
+    if(assets.core.bg) ctx.drawImage(assets.core.bg, 0, 0, GAME_W, GAME_H); else { ctx.fillStyle='#333'; ctx.fillRect(0,0,GAME_W, GAME_H); }
+    const pX = state.playerX;
+    if(assets.core.char) ctx.drawImage(assets.core.char, pX - (CHAR_W/2), CHAR_Y, CHAR_W, CHAR_H);
+    if(assets.core.basket) ctx.drawImage(assets.core.basket, pX - (BASKET_W/2), BASKET_Y, BASKET_W, BASKET_H);
+    state.items.forEach(item => {
+        const img = item.asset.img; const scale = ITEM_TARGET_W / img.width; const drawW = ITEM_TARGET_W; const drawH = img.height * scale;
+        ctx.save(); ctx.translate(item.x, item.y); ctx.rotate(item.angle);
+        if (item.asset.isBad) { ctx.shadowColor = 'rgba(255, 0, 0, 0.8)'; ctx.shadowBlur = 15 + Math.sin(Date.now() / 100) * 10; } 
+        else if (item.asset.score >= 50) { ctx.shadowColor = 'rgba(255, 215, 0, 0.8)'; ctx.shadowBlur = 15 + Math.sin(Date.now() / 300) * 10; }
+        ctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH); ctx.shadowBlur = 0; ctx.restore();
+    });
+}
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+function connectX() { alert("Connect with X feature coming soon!"); }
+
+// --- CANVAS PREVIEW LOGIC (SAFE) ---
+let shareCanvas = null;
+
+function openSharePreview() {
+    shareCanvas = document.createElement('canvas');
+    shareCanvas.width = 1080; shareCanvas.height = 1080;
+    const x = shareCanvas.getContext('2d');
+
+    // 1. Draw Background (share-bg.png or fallback)
+    const bgImg = assets.core.sharebg;
+    if(bgImg && bgImg.complete && bgImg.naturalWidth !== 0) {
+        x.drawImage(bgImg, 0, 0, 1080, 1080);
+    } else {
+        x.fillStyle = '#222'; x.fillRect(0,0,1080,1080);
+    }
+
+    // 2. Fade Gradient
+    const grad = x.createLinearGradient(0, 0, 0, 600);
+    grad.addColorStop(0, 'rgba(0,0,0,0.9)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.0)');
+    x.fillStyle = grad;
+    x.fillRect(0, 0, 1080, 1080);
+
+    // 3. Text
+    x.shadowColor="rgba(0,0,0,0.8)"; x.shadowBlur=10; x.shadowOffsetX=5; x.shadowOffsetY=5;
+    x.textAlign = "center";
+
+    x.fillStyle = '#fff';
+    x.font = "900 80px Courier New";
+    x.fillText("PROPER'S: TIE DROP", 540, 150);
+
+    x.fillStyle = "#f1c40f";
+    x.font = "900 130px Courier New";
+    x.fillText("I SCORED " + state.score + "!", 540, 320);
+
+    const container = document.getElementById('shareCanvasContainer');
+    container.innerHTML = ''; 
+    container.appendChild(shareCanvas);
+    document.getElementById('sharePreviewScreen').style.display = 'flex';
+}
+
+function downloadShareImage() {
+    if(!shareCanvas) return;
+    try {
+        const url = shareCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'proper-score.png';
+        link.href = url;
+        link.click();
+    } catch(e) {
+        alert("Security Block: Right-click the preview image and choose 'Save Image As'.");
+    }
+}
+
+function closeSharePreview() {
+    document.getElementById('sharePreviewScreen').style.display = 'none';
+}
+
+</script>
+</body>
+</html>
